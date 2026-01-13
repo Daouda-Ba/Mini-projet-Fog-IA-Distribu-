@@ -1,283 +1,123 @@
-```markdown
-#  Kafka & Spark – Mini Projet Federated Learning (Edge–Fog–Cloud)
+---
 
-##  Objectif du projet
+#  Federated Learning Architecture: Edge–Fog–Cloud
 
-Ce projet a pour objectif de mettre en œuvre une **architecture distribuée de type Edge–Fog–Cloud**
-en utilisant **Apache Kafka** et **Apache Spark Structured Streaming**.
+### Projet de Streaming de Données Distribué avec Apache Kafka & Spark
 
-Le système simule :
-- des **capteurs IoT** (Edge) produisant des données,
-- des **Fog Nodes** traitant localement les données,
-- un **Cloud Aggregator** construisant un modèle global à partir des résultats des Fog Nodes.
+##  Présentation du Projet
+
+Ce projet implémente une pipeline de **Federated Learning** simplifiée, structurée sur trois niveaux (Edge, Fog, Cloud). L'objectif est de démontrer comment traiter des flux de données IoT en temps réel de manière décentralisée pour minimiser la latence et préserver la bande passante.
 
 ---
 
-##  Architecture globale
+##  Architecture du Système
 
-```
+Le schéma ci-dessous illustre le flux de données, depuis la génération au niveau des capteurs jusqu'à l'agrégation globale dans le Cloud.
 
-Capteurs (Kafka Producer)
-↓
-Kafka Topics (raw data)
-↓
-Fog Node 1 (Spark Streaming) ┐
-Fog Node 2 (Spark Streaming) ├──> Kafka (model-weights)
-↓
-Cloud Aggregator (Spark Streaming)
-
-```
+![Architecture du Projet](images/architecture.png)
 
 ---
 
-##  Technologies utilisées
+##  Stack Technique
 
-- **Apache Kafka** (message broker)
-- **Apache Spark 3.5.1** (Structured Streaming)
-- **Docker & Docker Compose**
-- **Python (PySpark)**
-- **Zookeeper**
-- **WSL2 / Windows**
+* **Message Broker :** Apache Kafka (Inter-node communication)
+* **Orchestration :** Zookeeper
+* **Processing :** Spark Structured Streaming 3.5.1
+* **Containerisation :** Docker & Docker Compose
+* **Langage :** Python (PySpark)
 
 ---
 
-##  Structure du projet
+##  Structure du Répertoire
 
-```
-
+```text
 kafka-spark-federated/
-│
-├── docker-compose.yml
-│
+├── docker-compose.yml       # Infrastructure (Kafka, Zookeeper, Spark)
 ├── producer/
-│   └── sensor_producer.py
-│
+│   └── sensor_producer.py   # Simulation de capteurs (Edge)
 ├── fog/
-│   ├── fog_node_1.py
-│   └── fog_node_2.py
-│
+│   ├── fog_node_1.py        # Worker Spark local 1
+│   └── fog_node_2.py        # Worker Spark local 2
 ├── cloud/
-│   └── aggregator.py
-│
+│   └── aggregator.py        # Agrégateur central (Cloud)
 └── README.md
 
-````
+```
 
 ---
 
-##  Phase 0 – Mise en place de l’environnement
+##  Guide de Déploiement
 
-### Lancement des services Docker
+### 1. Initialisation de l'Infrastructure
+
+Lancez l'ensemble des services définis dans le fichier Compose :
 
 ```bash
 docker compose up -d
-````
 
-### Vérification des conteneurs
-
-```bash
-docker ps
 ```
 
-Conteneurs attendus :
+### 2. Configuration du Messaging (Kafka)
 
-* `zookeeper`
-* `kafka`
-* `spark`
-
----
-
-##  Phase 1 – Kafka (Edge Layer)
-
-### Création des topics Kafka
+Créez les topics nécessaires pour isoler les flux de données brutes et les poids des modèles :
 
 ```bash
-docker exec -it kafka kafka-topics \
-  --bootstrap-server kafka:29092 \
-  --create --topic sensor-data \
-  --partitions 1 --replication-factor 1
+# Données des capteurs
+docker exec -it kafka kafka-topics --bootstrap-server kafka:29092 --create --topic sensor-data --partitions 1 --replication-factor 1
+
+# Poids des modèles locaux
+docker exec -it kafka kafka-topics --bootstrap-server kafka:29092 --create --topic model-weights --partitions 1 --replication-factor 1
+
 ```
 
-```bash
-docker exec -it kafka kafka-topics \
-  --bootstrap-server kafka:29092 \
-  --create --topic model-weights \
-  --partitions 1 --replication-factor 1
-```
+### 3. Exécution de la Pipeline
 
-### Producteur de données capteurs
+**Étape A : Lancer la production Edge**
 
 ```bash
 docker exec -it kafka python /app/producer/sensor_producer.py
+
 ```
 
-**Données envoyées (exemple)** :
-
-```json
-{
-  "sensor_id": "s1",
-  "temperature": 26.5,
-  "vibration": 0.03
-}
-```
-
----
-
-##  Phase 2 – Fog Nodes (Traitement local)
-
-### Objectif
-
-* Consommer les données `sensor-data`
-* Calculer des moyennes locales
-* Générer un **poids (weight)**
-* Publier vers le topic `model-weights`
-
----
-
-### Commande d’exécution Fog Node
+**Étape B : Lancer les Fog Nodes (Spark)**
 
 ```bash
 docker exec -it spark /opt/spark/bin/spark-submit \
   --conf spark.jars.ivy=/tmp/ivy \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 \
   /app/fog/fog_node_1.py
-```
-
-Même commande pour `fog_node_2.py`.
-
----
-
-###  Erreur rencontrée n°1 : Kafka non trouvé
-
-**Erreur**
 
 ```
-Failed to find data source: kafka
-```
 
-**Cause**
-
-> Le connecteur Kafka n’est pas inclus par défaut dans Spark.
-
-**Solution**
-
-> Ajout du package Kafka au moment du `spark-submit`.
-
-```bash
---packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
-```
-
----
-
-###  Erreur rencontrée n°2 : Ivy cache permission denied
-
-**Erreur**
-
-```
-FileNotFoundException: /home/spark/.ivy2/cache
-```
-
-**Solution**
-
-> Définir un dossier Ivy accessible.
-
-```bash
---conf spark.jars.ivy=/tmp/ivy
-```
-
----
-
-###  Erreur rencontrée n°3 : NoneType dans le calcul
-
-**Erreur**
-
-```
-TypeError: unsupported operand type(s) for *: 'int' and 'NoneType'
-```
-
-**Cause**
-
-> Certaines valeurs Kafka sont absentes (null).
-
-**Solution**
-
-```python
-avg_temp = row.avg_temp or 0
-avg_vib = row.avg_vib or 0
-weight = (avg_temp + 100 * avg_vib) / 2
-```
-
----
-
-##  Phase 3 – Cloud Aggregator
-
-### Objectif
-
-* Consommer les poids envoyés par les Fog Nodes
-* Calculer un **modèle global**
-* Afficher le résultat en streaming
-
----
-
-### Lancement du Cloud Aggregator
+**Étape C : Lancer l'agrégateur Cloud**
 
 ```bash
 docker exec -it spark /opt/spark/bin/spark-submit \
   --conf spark.jars.ivy=/tmp/ivy \
   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 \
   /app/cloud/aggregator.py
-```
-
----
-
-### Résultat attendu
-
-```text
-+-------------+
-|global_weight|
-+-------------+
-|    56.42    |
-+-------------+
-```
-
----
-
-##  Résultats obtenus
-
-* ✔ Pipeline Kafka fonctionnel
-* ✔ Traitement temps réel avec Spark
-* ✔ Agrégation distribuée Fog → Cloud
-* ✔ Architecture Federated Learning simulée
-* ✔ Projet stable et reproductible
-
----
-
-##  Bonnes pratiques appliquées
-
-* Séparation Edge / Fog / Cloud
-* Gestion des valeurs nulles
-* Utilisation de Docker pour la reproductibilité
-* Logs Spark contrôlés (`WARN`)
-* Topics Kafka dédiés par couche
-
----
-
-##  Améliorations possibles
-
-* Checkpointing Spark Streaming
-* Fenêtrage temporel (`window`)
-* Stockage HDFS / S3
-* Visualisation (Grafana)
-* Sécurité Kafka (SASL / SSL)
-
----
-
-## Auteur
-
-**Daouda Ba**
-Projet Kafka & Spark – Federated Learning
-2026
 
 ```
 
 ---
+
+##  Gestion des Erreurs & Optimisations
+
+Lors du développement, plusieurs défis techniques ont été relevés :
+
+* **Connectivité Kafka-Spark :** Résolu par l'injection dynamique du package `--packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1`.
+* **Sécurité Docker :** Correction des permissions d'écriture du cache Ivy via `--conf spark.jars.ivy=/tmp/ivy`.
+* **Data Quality :** Implémentation d'une logique de nettoyage pour éviter les erreurs `NoneType` lors des calculs arithmétiques sur les moyennes.
+
+---
+
+##  Améliorations Futures
+
+* [ ] **Persistance :** Intégration d'une base de données NoSQL (Cassandra/MongoDB) pour l'historique des modèles globaux.
+* [ ] **Monitoring :** Ajout d'un tableau de bord Grafana via Prometheus pour visualiser les métriques de performance.
+
+---
+
+**Auteur :** Daouda Ba
+
+**Année :** 2026
