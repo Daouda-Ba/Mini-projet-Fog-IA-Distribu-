@@ -56,8 +56,6 @@ cover/
 *.pot
 env/
 venv/
-images/
-Mon rapport du Mini-projet.pdf
 # Django stuff:
 *.log
 local_settings.py
